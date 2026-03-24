@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=portrait">
+    <title>BMT 2026 雲端數據中心 PRO</title>
+<link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0f172a">
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="BMT 2026">
+    <link rel="apple-touch-icon" href="icon-192.png">
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('Service Worker 註冊成功'))
+            .catch(err => console.log('Service Worker 註冊失敗', err));
+        });
+      }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #0f172a; color: #f8fafc; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
+        
+        .view-section { display: none; min-height: 100vh; width: 100%; padding: 1.5rem; flex-direction: column; animation: fadeIn 0.3s ease-out; }
+        .view-section.active { display: flex; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
+        
+        .glass-card { background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 1.5rem; }
+        .btn-primary { background: #4f46e5; color: white; padding: 1rem; border-radius: 1rem; font-weight: 900; text-align: center; transition: 0.2s; }
+        .btn-primary:active { transform: scale(0.95); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        @media screen and (orientation: portrait) {
+            #view-score-board.active::before { content: "請將手機轉為橫向以進行計分"; position: fixed; inset: 0; background: #0f172a; z-index: 999; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 900; }
+        }
+    </style>
+</head>
+<body>
+
+    <section id="view-login" class="view-section active items-center justify-center">
+        <div class="text-center mb-10">
+            <h1 class="text-4xl font-black italic tracking-tighter text-indigo-400">BMT <span class="text-white">2026</span></h1>
+            <p class="text-slate-400 text-xs tracking-widest uppercase mt-2">Cloud Data Center</p>
+        </div>
+        <div id="loginPlayerGrid" class="grid grid-cols-3 gap-6 max-w-md w-full overflow-y-auto no-scrollbar max-h-[60vh] p-4"></div>
+        
+        <div id="loginPinOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-50">
+            <img id="loginAvatarTarget" class="w-24 h-24 rounded-full border-4 border-indigo-500 mb-4 shadow-2xl object-cover bg-slate-800">
+            <h3 id="loginNameTarget" class="text-2xl font-black mb-6"></h3>
+            <input type="password" id="loginPinInput" maxlength="6" inputmode="numeric" class="bg-slate-800 text-white text-4xl text-center tracking-[0.5em] p-4 rounded-3xl w-64 outline-none border-2 border-transparent focus:border-indigo-500 mb-8" placeholder="******">
+            <div class="flex gap-4 w-64">
+                <button onclick="toggleLogin(false)" class="flex-1 py-3 bg-slate-700 rounded-2xl font-bold">取消</button>
+                <button onclick="attemptLogin()" class="flex-1 py-3 bg-indigo-600 rounded-2xl font-black">登入</button>
+            </div>
+        </div>
+    </section>
+
+    <div id="registerOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-50 p-6">
+        <div class="glass-card p-6 w-full max-w-sm space-y-4 shadow-2xl">
+            <h3 class="font-black text-xl mb-4 text-center text-indigo-400">註冊新成員</h3>
+            <div class="flex flex-col items-center gap-2 mb-4">
+                <img id="regAvatarPreview" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23334155'/><text x='50' y='50' font-family='Arial' font-size='40' fill='white' dominant-baseline='middle' text-anchor='middle'>🏸</text></svg>" class="w-20 h-20 rounded-full border-4 border-slate-600 object-cover cursor-pointer hover:border-indigo-400 transition" onclick="openAvatarPicker('register')">
+                <span class="text-[10px] text-slate-400 font-bold bg-slate-800 px-3 py-1 rounded-full cursor-pointer" onclick="openAvatarPicker('register')">更換頭像</span>
+            </div>
+            <input type="text" id="regName" placeholder="輸入顯示名稱" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold">
+            <select id="regGender" class="w-full bg-slate-800 p-4 rounded-xl outline-none text-sm font-bold text-slate-300">
+                <option value="male">男 ♂</option>
+                <option value="female">女 ♀</option>
+            </select>
+            <input type="password" id="regPin" maxlength="6" inputmode="numeric" placeholder="設定 6 位數密碼" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-mono tracking-widest text-center text-xl">
+            <div class="flex gap-3 mt-6">
+                <button onclick="document.getElementById('registerOverlay').classList.add('hidden'); document.getElementById('registerOverlay').classList.remove('flex');" class="flex-1 py-3 bg-slate-700 rounded-xl font-bold">取消</button>
+                <button onclick="registerUser()" class="flex-1 py-3 bg-indigo-600 rounded-xl font-black">完成註冊</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="avatarPickerOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-[60] p-6">
+        <div class="glass-card p-6 w-full max-w-sm">
+            <h3 class="font-black text-xl mb-4 text-center">選擇專屬頭像</h3>
+            <div class="grid grid-cols-4 gap-4 max-h-64 overflow-y-auto no-scrollbar p-2" id="avatarPickerGrid"></div>
+            <button onclick="document.getElementById('avatarPickerOverlay').classList.add('hidden'); document.getElementById('avatarPickerOverlay').classList.remove('flex');" class="w-full mt-6 py-3 bg-slate-700 rounded-xl font-bold">取消返回</button>
+        </div>
+    </div>
+
+    <section id="view-menu" class="view-section items-center justify-center">
+        <div class="w-full max-w-md space-y-6">
+            <header class="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
+                <div>
+                    <p class="text-slate-400 text-xs font-bold uppercase">Welcome,</p>
+                    <div class="flex items-center gap-2">
+                        <h2 id="menuUserName" class="text-2xl font-black text-white"></h2>
+                        <span id="adminBadge" class="hidden bg-rose-500/20 text-rose-400 text-[10px] px-2 py-0.5 rounded-full font-black border border-rose-500/50">管理員</span>
+                    </div>
+                </div>
+                <button onclick="logout()" class="px-4 py-2 bg-rose-600/20 text-rose-400 rounded-full text-xs font-bold">登出系統</button>
+            </header>
+
+            <button onclick="nav('view-score-step1')" class="w-full glass-card p-6 flex items-center gap-4 text-left active:scale-95 transition">
+                <div class="text-4xl">🏸</div>
+                <div><h3 class="font-black text-xl">1. 計分系統</h3><p class="text-slate-400 text-xs">選擇出賽名單與即時計分</p></div>
+            </button>
+            <button onclick="nav('view-analysis-menu')" class="w-full glass-card p-6 flex items-center gap-4 text-left active:scale-95 transition">
+                <div class="text-4xl">📊</div>
+                <div><h3 class="font-black text-xl">2. 數據分析系統</h3><p class="text-slate-400 text-xs">排行榜與個人勝率分析</p></div>
+            </button>
+            <button onclick="nav('view-accounting'); renderAccounting();" class="w-full glass-card p-6 flex items-center gap-4 text-left active:scale-95 transition">
+                <div class="text-4xl">💰</div>
+                <div><h3 class="font-black text-xl">3. 智能記帳</h3><p class="text-slate-400 text-xs">財務儀表板與經費管理</p></div>
+            </button>
+            <button onclick="openAISystem()" class="w-full glass-card p-6 flex items-center gap-4 text-left active:scale-95 transition">
+                <div class="text-4xl">🤖</div>
+                <div><h3 class="font-black text-xl">4. 智能分隊系統</h3><p class="text-slate-400 text-xs">AI 強弱互補賽程安排</p></div>
+            </button>
+            <button onclick="nav('view-settings')" class="w-full glass-card p-6 flex items-center gap-4 text-left active:scale-95 transition">
+                <div class="text-4xl">⚙️</div>
+                <div><h3 class="font-black text-xl">5. 帳號設定</h3><p class="text-slate-400 text-xs">修改密碼與個人資料</p></div>
+            </button>
+        </div>
+    </section>
+
+    <section id="view-score-step1" class="view-section">
+        <header class="flex items-center gap-4 mb-8">
+            <button onclick="nav('view-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-2xl font-black italic">步驟一：賽事設定</h2>
+        </header>
+        <div class="space-y-6 flex-1">
+            <div class="glass-card p-6">
+                <label class="text-xs font-bold text-slate-400 uppercase mb-2 block">輸入今日比賽日期</label>
+                <input type="date" id="scoreDate" class="w-full bg-slate-800 text-white p-4 rounded-xl font-bold outline-none">
+            </div>
+            <div class="glass-card p-6 flex-1">
+                <label class="text-xs font-bold text-slate-400 uppercase mb-4 block">選擇今日到場人員</label>
+                <div id="presentPlayersGrid" class="grid grid-cols-3 gap-3 overflow-y-auto max-h-64 no-scrollbar"></div>
+            </div>
+            <button onclick="goToScoreStep2()" class="btn-primary w-full shadow-lg shadow-indigo-500/30">下一步：選擇對戰組合</button>
+        </div>
+    </section>
+
+    <section id="view-score-step2" class="view-section">
+        <header class="flex items-center gap-4 mb-8">
+            <button onclick="nav('view-score-step1')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-2xl font-black italic">步驟二：對戰組合</h2>
+        </header>
+        <div class="glass-card p-6 space-y-8 flex-1">
+            <div class="space-y-3">
+                <p class="text-center font-black text-indigo-400">TEAM A</p>
+                <select id="s_p1" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
+                <select id="s_p2" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
+            </div>
+            <div class="text-center font-black text-slate-500 text-2xl italic">VS</div>
+            <div class="space-y-3">
+                <p class="text-center font-black text-rose-400">TEAM B</p>
+                <select id="s_p3" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
+                <select id="s_p4" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
+            </div>
+        </div>
+        <button onclick="startScoreboard()" class="btn-primary w-full mt-6 text-xl py-5">進入計分板</button>
+    </section>
+
+    <section id="view-score-board" class="fixed inset-0 z-50 bg-[#0f172a] hidden flex-col">
+        <div class="absolute top-4 left-1/2 -translate-x-1/2 z-10 flex gap-4">
+            <button onclick="nav('view-score-step2')" class="bg-slate-800 px-6 py-2 rounded-full font-bold">退出不儲存</button>
+            <button onclick="uploadScore()" class="bg-emerald-600 px-6 py-2 rounded-full font-black shadow-lg">打完上傳</button>
+        </div>
+        <div class="flex-1 flex w-full">
+            <div class="flex-1 bg-indigo-900 flex flex-col justify-center items-center cursor-pointer border-r-2 border-slate-900 select-none" onclick="handleScoreTap(1)">
+                <h2 id="boardT1Names" class="text-2xl font-bold opacity-70 mb-4 pointer-events-none"></h2>
+                <div id="boardT1Score" class="text-[12rem] font-black leading-none pointer-events-none">0</div>
+            </div>
+            <div class="flex-1 bg-rose-900 flex flex-col justify-center items-center cursor-pointer border-l-2 border-slate-900 select-none" onclick="handleScoreTap(2)">
+                <h2 id="boardT2Names" class="text-2xl font-bold opacity-70 mb-4 pointer-events-none"></h2>
+                <div id="boardT2Score" class="text-[12rem] font-black leading-none pointer-events-none">0</div>
+            </div>
+        </div>
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-slate-400 text-xs font-bold pointer-events-none">點一下 +1 分｜連點兩下 -1 分</div>
+    </section>
+
+    <div id="postMatchOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-50 p-6">
+        <div class="glass-card p-8 w-full max-w-sm text-center space-y-8 shadow-2xl border-t-4 border-emerald-500">
+            <div>
+                <div class="text-6xl mb-4">✅</div>
+                <h3 class="font-black text-2xl text-white">成績已成功上傳</h3>
+            </div>
+            <div class="space-y-4">
+                <button onclick="nextMatchFlow()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 rounded-2xl font-black text-lg shadow-lg transition">🏸 繼續下一場對戰<br><span class="text-xs font-bold text-indigo-200">(回到對戰組合)</span></button>
+                <button onclick="endMatchFlow()" class="w-full py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-bold text-slate-300 border border-slate-600 transition">🏠 結束今日賽程<br><span class="text-xs text-slate-400">(回到主頁面)</span></button>
+            </div>
+        </div>
+    </div>
+
+    <section id="view-analysis-menu" class="view-section">
+        <header class="flex items-center gap-4 mb-8">
+            <button onclick="nav('view-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-2xl font-black italic">數據分析系統</h2>
+        </header>
+        <div class="space-y-4">
+            <button onclick="nav('view-analysis-leaderboard'); renderLeaderboard();" class="w-full glass-card p-8 text-center active:scale-95 transition">
+                <div class="text-5xl mb-4">🏆</div>
+                <h3 class="font-black text-2xl">查看排行榜</h3>
+                <p class="text-slate-400 text-sm mt-2">年度雙打與單人勝率排行</p>
+            </button>
+            <button onclick="nav('view-analysis-personal'); renderAnalysisAvatars();" class="w-full glass-card p-8 text-center active:scale-95 transition">
+                <div class="text-5xl mb-4">🕵️‍♂️</div>
+                <h3 class="font-black text-2xl">個人數據分析</h3>
+                <p class="text-slate-400 text-sm mt-2">選擇球員查看適配組合</p>
+            </button>
+        </div>
+    </section>
+
+    <section id="view-analysis-leaderboard" class="view-section">
+        <header class="flex items-center gap-4 mb-4">
+            <button onclick="nav('view-analysis-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-xl font-black italic">進階勝率排行榜</h2>
+        </header>
+        <div class="glass-card p-4 flex-1 overflow-y-auto no-scrollbar space-y-6" id="leaderboardContent"></div>
+    </section>
+    <section id="view-analysis-personal" class="view-section">
+        <header class="flex items-center gap-4 mb-4">
+            <button onclick="nav('view-analysis-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-xl font-black italic">選擇分析對象</h2>
+        </header>
+        <div id="analysisAvatarGrid" class="grid grid-cols-3 gap-4 overflow-y-auto no-scrollbar pb-10"></div>
+    </section>
+    <section id="view-analysis-detail" class="view-section">
+        <header class="flex items-center gap-4 mb-4">
+            <button onclick="nav('view-analysis-personal')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-xl font-black italic">個人分析報告</h2>
+        </header>
+        <div id="personalAnalysisContent" class="glass-card p-6 flex-1 overflow-y-auto no-scrollbar space-y-4"></div>
+    </section>
+
+    <section id="view-accounting" class="view-section">
+        <header class="flex justify-between items-center mb-6">
+            <div class="flex items-center gap-4">
+                <button onclick="nav('view-menu')" class="text-slate-400 text-2xl font-black">←</button>
+                <h2 class="text-xl font-black italic">智能記帳</h2>
+            </div>
+            <button id="addLedgerBtn" onclick="openLedgerForm()" class="hidden bg-indigo-600 px-4 py-2 rounded-xl text-xs font-black shadow-lg">+ 新增紀錄</button>
+        </header>
+        
+        <div class="glass-card p-6 mb-4 border-t-4 border-indigo-500 shadow-xl">
+            <div class="flex justify-between items-center mb-2">
+                <p class="text-xs text-slate-400 font-bold uppercase">目前球隊總結餘</p>
+            </div>
+            <h3 class="text-4xl font-black text-white" id="totalBalance">$0</h3>
+            <div class="flex gap-4 mt-6">
+                <div class="flex-1 bg-slate-900/50 p-3 rounded-xl border border-emerald-500/20"><p class="text-[10px] text-slate-400 mb-1">總收入</p><p class="text-lg font-black text-emerald-400" id="totalIncome">+$0</p></div>
+                <div class="flex-1 bg-slate-900/50 p-3 rounded-xl border border-rose-500/20"><p class="text-[10px] text-slate-400 mb-1">總支出</p><p class="text-lg font-black text-rose-400" id="totalExpense">-$0</p></div>
+            </div>
+        </div>
+        
+        <h3 class="text-xs font-bold text-slate-500 mb-3 uppercase px-2 tracking-widest">近期交易紀錄</h3>
+        <div class="flex-1 overflow-y-auto no-scrollbar" id="ledgerList"></div>
+
+        <div id="ledgerFormOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-50 p-6">
+            <div class="w-full max-w-sm glass-card p-6 space-y-4">
+                <h3 class="font-black text-xl mb-4">帳目登記</h3>
+                <input type="date" id="ledgerDate" class="w-full bg-slate-800 p-3 rounded-xl outline-none">
+                <select id="ledgerCategory" class="w-full bg-slate-800 p-3 rounded-xl outline-none text-sm font-bold text-slate-300">
+                    <option value="場地費">🏟️ 場地費</option>
+                    <option value="羽球費">🏸 羽球費</option>
+                    <option value="會員費">💳 會員費</option>
+                    <option value="零星雜支">🛒 零星雜支</option>
+                </select>
+                <input type="text" id="ledgerDesc" placeholder="備註說明 (選填)" class="w-full bg-slate-800 p-3 rounded-xl outline-none">
+                <div class="flex gap-4">
+                    <label class="flex-1 flex items-center justify-center gap-2 bg-slate-800 p-3 rounded-xl border border-emerald-500/30 has-[:checked]:bg-emerald-600/20"><input type="radio" name="ledgerType" value="income" class="accent-emerald-500" checked> 收入</label>
+                    <label class="flex-1 flex items-center justify-center gap-2 bg-slate-800 p-3 rounded-xl border border-rose-500/30 has-[:checked]:bg-rose-600/20"><input type="radio" name="ledgerType" value="expense" class="accent-rose-500"> 支出</label>
+                </div>
+                <input type="number" id="ledgerAmt" placeholder="輸入金額" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-black text-2xl text-center">
+                <div class="flex gap-3 mt-6">
+                    <button onclick="document.getElementById('ledgerFormOverlay').classList.add('hidden')" class="flex-1 py-3 bg-slate-700 rounded-xl font-bold">取消</button>
+                    <button onclick="saveLedger()" class="flex-1 py-3 bg-indigo-600 rounded-xl font-black">儲存紀錄</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="view-ai" class="view-section">
+        <header class="flex items-center gap-4 mb-6">
+            <button onclick="nav('view-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-xl font-black italic">AI 智能分隊</h2>
+        </header>
+        <div class="glass-card p-6 flex-1 flex flex-col space-y-4">
+            <p class="text-xs text-slate-400 font-bold">請勾選今日到場人員</p>
+            <div id="aiPlayerChecklist" class="grid grid-cols-3 gap-3 overflow-y-auto max-h-48 no-scrollbar"></div>
+            <button onclick="generateAITeams()" class="btn-primary w-full shadow-lg shadow-purple-500/30 bg-purple-600">產生平衡賽程表</button>
+            <div id="aiMatchResult" class="flex-1 overflow-y-auto no-scrollbar space-y-3 mt-4 border-t border-slate-700 pt-4"></div>
+        </div>
+    </section>
+
+    <section id="view-settings" class="view-section">
+        <header class="flex items-center gap-4 mb-6">
+            <button onclick="nav('view-menu')" class="text-slate-400 text-2xl font-black">←</button>
+            <h2 class="text-xl font-black italic">個人設定</h2>
+        </header>
+        <div class="glass-card p-6 space-y-6">
+            <div class="flex flex-col items-center gap-2">
+                <img id="setAvatar" class="w-24 h-24 rounded-full border-4 border-slate-500 object-cover bg-slate-800 cursor-pointer hover:border-indigo-400 transition" onclick="openAvatarPicker('settings')">
+                <span class="text-[10px] text-slate-400 font-bold bg-slate-800 px-3 py-1 rounded-full cursor-pointer" onclick="openAvatarPicker('settings')">點擊更換頭像</span>
+            </div>
+            <div><label class="text-xs text-slate-400">顯示名稱</label><input type="text" id="setName" class="w-full bg-slate-800 p-3 rounded-xl mt-1 font-bold"></div>
+            
+            <div>
+                <label class="text-xs text-slate-400">性別</label>
+                <select id="setGender" class="w-full bg-slate-800 p-3 rounded-xl mt-1 font-bold text-slate-300 outline-none">
+                    <option value="male">男 ♂</option>
+                    <option value="female">女 ♀</option>
+                </select>
+            </div>
+
+            <div><label class="text-xs text-slate-400">變更密碼 (6位數)</label><input type="password" id="setPin" maxlength="6" class="w-full bg-slate-800 p-3 rounded-xl mt-1 font-mono tracking-widest text-center text-xl"></div>
+            <button onclick="saveProfile()" class="btn-primary w-full">儲存設定</button>
+        </div>
+
+        <div id="adminPanel" class="hidden mt-8 glass-card p-6 border-2 border-rose-500/30">
+            <h3 class="font-black text-rose-400 mb-2">🛡️ 最高權限管理員專區</h3>
+            <p class="text-xs text-slate-400 mb-4">進行人員與歷史紀錄的刪除管理</p>
+            
+            <h4 class="text-xs font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1 mt-4">👥 人員管理</h4>
+            <div id="adminUserList" class="space-y-2 max-h-40 overflow-y-auto no-scrollbar mb-6"></div>
+
+            <h4 class="text-xs font-bold text-slate-300 mb-2 border-b border-slate-700 pb-1">🏸 近期比賽紀錄管理</h4>
+            <div id="adminMatchList" class="space-y-2 max-h-40 overflow-y-auto no-scrollbar"></div>
+        </div>
+    </section>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyAu3vgGKm0pJL_HB2N8v1GI73GK9ppB6PQ",
+            authDomain: "badminton01-03.firebaseapp.com",
+            databaseURL: "https://badminton01-03-default-rtdb.firebaseio.com/",
+            projectId: "badminton01-03",
+            storageBucket: "badminton01-03.firebasestorage.app",
+            messagingSenderId: "28613577810",
+            appId: "1:28613577810:web:36f35050aa1d1de0b3a38b"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const rtdb = firebase.database();
+
+        let db = { users: [], matches: [], accounting: [] };
+        let session = null; let loginTarget = null;
+        let currentMatchDate = ''; let presentUserIds = [];
+        let t1Score = 0; let t2Score = 0;
+        let currentAvatarTarget = ''; 
+
+        const playerAvatarFallback = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='%23334155'/><text x='50' y='50' font-family='Arial' font-size='40' fill='white' dominant-baseline='middle' text-anchor='middle'>🏸</text></svg>";
+
+        window.onload = () => {
+            document.getElementById('scoreDate').valueAsDate = new Date();
+            rtdb.ref('/').on('value', (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    // 【除錯修正區塊】過濾 Firebase 手動刪除產生的 null 洞或物件格式，確保皆為乾淨的陣列
+                    db.users = data.users ? Object.values(data.users).filter(Boolean) : [];
+                    db.matches = data.matches ? Object.values(data.matches).filter(Boolean) : [];
+                    db.accounting = data.accounting ? Object.values(data.accounting).filter(Boolean) : [];
+                    
+                    // 移除舊版用來過濾管理員的邏輯，避免再次呼叫 .find 報錯
+                    if(db.users.find(u => u && u.id === 'admin-001')) {
+                        db.users = db.users.filter(u => u.id !== 'admin-001');
+                        rtdb.ref('users').set(db.users);
+                    }
+                    
+                    // 【除錯修正】如果當前登入的帳號剛好在 Firebase 被刪除了，強制讓其登出，避免後續報錯
+                    if (session && !db.users.find(u => u.id === session.id)) {
+                        session = null;
+                        location.reload();
+                        return;
+                    }
+                    
+                    if(!session) renderLoginGrid();
+                    if(document.getElementById('view-accounting').classList.contains('active')) renderAccounting();
+                    if(document.getElementById('adminPanel').classList.contains('active')) { renderAdminList(); renderAdminMatches(); }
+                    if(document.getElementById('view-analysis-leaderboard').classList.contains('active')) renderLeaderboard();
+                }
+            });
+        };
+
+        function nav(viewId) {
+            document.querySelectorAll('.view-section, #view-score-board').forEach(el => {
+                el.classList.remove('active', 'flex');
+                if(el.id === 'view-score-board') el.classList.add('hidden'); 
+            });
+            const target = document.getElementById(viewId);
+            if(viewId === 'view-score-board') { target.classList.remove('hidden'); target.classList.add('flex'); } 
+            else { target.classList.add('active'); }
+        }
+
+        function renderLoginGrid() {
+            const grid = document.getElementById('loginPlayerGrid');
+            let html = db.users.map(u => `
+                <div onclick="openLoginPin('${u.id}')" class="flex flex-col items-center cursor-pointer active:scale-90 transition">
+                    <img src="${u.avatar || playerAvatarFallback}" onerror="this.src='${playerAvatarFallback}'" class="w-20 h-20 rounded-full border-4 border-slate-700 bg-slate-800 object-cover shadow-lg">
+                    <span class="text-xs font-bold mt-2 text-slate-300 truncate w-full text-center">${u.name}</span>
+                </div>
+            `).join('');
+            
+            html += `
+                <div onclick="openRegisterOverlay()" class="flex flex-col items-center cursor-pointer active:scale-90 transition">
+                    <div class="w-20 h-20 rounded-full border-4 border-slate-700 border-dashed bg-slate-800/50 flex items-center justify-center text-3xl text-slate-500 shadow-lg">+</div>
+                    <span class="text-xs font-bold mt-2 text-slate-400">註冊新成員</span>
+                </div>`;
+            grid.innerHTML = html;
+        }
+
+        function openLoginPin(uid) {
+            loginTarget = db.users.find(u => u.id === uid);
+            document.getElementById('loginAvatarTarget').src = loginTarget.avatar || playerAvatarFallback;
+            document.getElementById('loginNameTarget').innerText = loginTarget.name;
+            document.getElementById('loginPinInput').value = '';
+            document.getElementById('loginPinOverlay').classList.remove('hidden');
+            document.getElementById('loginPinOverlay').classList.add('flex');
+        }
+
+        function toggleLogin(show) {
+            const el = document.getElementById('loginPinOverlay');
+            if(show) { el.classList.remove('hidden'); el.classList.add('flex'); } else { el.classList.add('hidden'); el.classList.remove('flex'); }
+        }
+
+        function attemptLogin() {
+            const pin = document.getElementById('loginPinInput').value;
+            if(String(pin) === String(loginTarget.pin)) {
+                session = loginTarget;
+                document.getElementById('menuUserName').innerText = session.name;
+                toggleLogin(false);
+                setupPermissions();
+                nav('view-menu');
+            } else { alert('密碼錯誤！'); document.getElementById('loginPinInput').value = ''; }
+        }
+
+        function logout() { session = null; location.reload(); }
+
+        function openRegisterOverlay() {
+            document.getElementById('regName').value = '';
+            document.getElementById('regPin').value = '';
+            document.getElementById('registerOverlay').classList.remove('hidden');
+            document.getElementById('registerOverlay').classList.add('flex');
+        }
+
+        function openAvatarPicker(target) {
+            currentAvatarTarget = target;
+            const grid = document.getElementById('avatarPickerGrid');
+            const styles = ['adventurer', 'fun-emoji', 'bottts'];
+            grid.innerHTML = Array.from({length: 12}).map((_, i) => {
+                const url = `https://api.dicebear.com/7.x/${styles[i%3]}/svg?seed=${i + Date.now()}`;
+                return `<img src="${url}" class="w-full aspect-square rounded-2xl cursor-pointer bg-slate-800 border-2 border-transparent hover:border-indigo-500 transition object-cover" onclick="selectAvatar('${url}')">`;
+            }).join('');
+            document.getElementById('avatarPickerOverlay').classList.remove('hidden');
+            document.getElementById('avatarPickerOverlay').classList.add('flex');
+        }
+
+        function selectAvatar(url) {
+            if(currentAvatarTarget === 'register') document.getElementById('regAvatarPreview').src = url;
+            else if (currentAvatarTarget === 'settings') document.getElementById('setAvatar').src = url;
+            document.getElementById('avatarPickerOverlay').classList.add('hidden');
+            document.getElementById('avatarPickerOverlay').classList.remove('flex');
+        }
+
+        function registerUser() {
+            const name = document.getElementById('regName').value.trim();
+            const pin = document.getElementById('regPin').value;
+            const gender = document.getElementById('regGender').value;
+            const avatar = document.getElementById('regAvatarPreview').src;
+            
+            if(!name) return alert('請輸入顯示名稱');
+            if(pin.length !== 6) return alert('密碼必須為 6 位數字');
+            if(db.users.find(u => u.name === name)) return alert('此名稱已存在，請更換名稱');
+
+            db.users.push({ id: 'u-' + Date.now(), name, pin: String(pin), gender, avatar });
+            rtdb.ref('users').set(db.users).then(() => {
+                alert('註冊成功！請點擊您的頭像進行登入。');
+                document.getElementById('registerOverlay').classList.add('hidden');
+                document.getElementById('registerOverlay').classList.remove('flex');
+            });
+        }
+
+        function setupPermissions() {
+            const isAdmin = ['鈞豪', '忴心', '安琪'].includes(session.name);
+            document.getElementById('addLedgerBtn').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('adminPanel').style.display = isAdmin ? 'block' : 'none';
+            document.getElementById('adminBadge').style.display = isAdmin ? 'inline-block' : 'none';
+            
+            document.getElementById('setAvatar').src = session.avatar || playerAvatarFallback;
+            document.getElementById('setName').value = session.name;
+            document.getElementById('setGender').value = session.gender || 'male'; // 載入性別
+            document.getElementById('setPin').value = session.pin;
+            if(isAdmin) { renderAdminList(); renderAdminMatches(); }
+        }
+
+        function renderAdminList() {
+            document.getElementById('adminUserList').innerHTML = db.users.map(u => {
+                const isSuperAdmin = ['鈞豪', '忴心', '安琪'].includes(u.name);
+                return `
+                <div class="flex justify-between items-center bg-slate-800 p-2 rounded-lg mb-2">
+                    <div class="flex items-center gap-3">
+                        <img src="${u.avatar}" class="w-8 h-8 rounded-full object-cover">
+                        <div>
+                            <span class="text-sm font-bold text-slate-300 block">${u.name}</span>
+                            <span class="text-[10px] text-indigo-400 font-mono">PIN: ${u.pin}</span>
+                        </div>
+                    </div>
+                    ${!isSuperAdmin ? `<button onclick="delUser('${u.id}')" class="bg-rose-900/50 text-rose-400 px-3 py-1 rounded-full text-xs font-bold border border-rose-500/50 active:scale-90">刪除</button>` : '<span class="text-[10px] text-slate-500">最高權限</span>'}
+                </div>`;
+            }).join('');
+        }
+
+        function renderAdminMatches() {
+            const matches = (db.matches || []).slice().reverse().slice(0, 15); 
+            document.getElementById('adminMatchList').innerHTML = matches.map(m => `
+                <div class="flex justify-between items-center bg-slate-800 p-2 rounded-lg mb-2">
+                    <div class="text-xs w-full">
+                        <p class="text-slate-500 mb-1">${m.date || '無日期'}</p>
+                        <p class="font-bold flex justify-between items-center pr-2">
+                            <span><span class="text-indigo-400">${m.t1.join('/')}</span> <span class="mx-1 text-white">${m.s1}:${m.s2}</span> <span class="text-rose-400">${m.t2.join('/')}</span></span>
+                            <button onclick="delMatch(${m.id})" class="bg-rose-900/50 text-rose-400 px-3 py-1 rounded-full text-[10px] font-bold border border-rose-500/50 active:scale-90">刪除</button>
+                        </p>
+                    </div>
+                </div>
+            `).join('') || '<p class="text-xs text-slate-500">無比賽紀錄</p>';
+        }
+
+        function delUser(id) {
+            if(confirm('警告：確定要刪除此使用者嗎？相關個人成績仍會保留文字紀錄。')) {
+                db.users = db.users.filter(u => u.id !== id);
+                rtdb.ref('users').set(db.users).then(() => {
+                    renderAdminList();
+                });
+            }
+        }
+        function delMatch(id) {
+            if(confirm('警告：確定刪除此場比賽紀錄？刪除後將會影響所有排行榜與個人分析數據！')) {
+                db.matches = db.matches.filter(m => m.id !== id);
+                rtdb.ref('matches').set(db.matches).then(() => {
+                    renderAdminMatches();
+                });
+            }
+        }
+
+        function saveProfile() {
+            const newName = document.getElementById('setName').value.trim();
+            const newGender = document.getElementById('setGender').value; 
+            const newPin = document.getElementById('setPin').value;
+            const newAvatar = document.getElementById('setAvatar').src;
+            
+            if(!newName) return alert('名稱不可空白');
+            if(newPin.length !== 6) return alert('密碼必須為 6 位數字');
+            
+            const idx = db.users.findIndex(u => u.id === session.id);
+            if(newName !== session.name && db.users.find(u => u.name === newName)) return alert('此名稱已有人使用！');
+            
+            db.users[idx].name = newName; 
+            db.users[idx].gender = newGender; 
+            db.users[idx].pin = String(newPin);
+            db.users[idx].avatar = newAvatar;
+            
+            rtdb.ref('users').set(db.users).then(() => { 
+                alert('個人設定已成功儲存！'); 
+                session = db.users[idx]; 
+                setupPermissions();
+                nav('view-menu'); 
+            });
+        }
+
+        document.querySelector('[onclick="nav(\'view-score-step1\')"]').addEventListener('click', () => {
+            document.getElementById('presentPlayersGrid').innerHTML = db.users.map(u => `
+                <label class="cursor-pointer"><input type="checkbox" class="hidden peer present-cb" value="${u.id}"><div class="p-2 border border-slate-600 rounded-xl text-center text-[11px] font-bold text-slate-400 peer-checked:bg-indigo-600 peer-checked:text-white transition truncate">${u.name}</div></label>
+            `).join('');
+        });
+
+        function goToScoreStep2() {
+            currentMatchDate = document.getElementById('scoreDate').value;
+            const checked = Array.from(document.querySelectorAll('.present-cb:checked')).map(cb => cb.value);
+            if(checked.length < 4) return alert('請至少勾選 4 位到場人員');
+            presentUserIds = checked;
+            const presentUsers = db.users.filter(u => presentUserIds.includes(u.id));
+            const options = `<option value="">-- 選擇 --</option>` + presentUsers.map(u => `<option value="${u.name}">${u.name}</option>`).join('');
+            ['s_p1', 's_p2', 's_p3', 's_p4'].forEach(id => document.getElementById(id).innerHTML = options);
+            nav('view-score-step2');
+        }
+
+        function startScoreboard() {
+            const p1 = document.getElementById('s_p1').value, p2 = document.getElementById('s_p2').value, p3 = document.getElementById('s_p3').value, p4 = document.getElementById('s_p4').value;
+            if([p1,p2,p3,p4].includes('')) return alert('請選齊四位球員');
+            if(new Set([p1,p2,p3,p4]).size !== 4) return alert('球員不可重複');
+            document.getElementById('boardT1Names').innerText = `${p1} / ${p2}`;
+            document.getElementById('boardT2Names').innerText = `${p3} / ${p4}`;
+            t1Score = 0; t2Score = 0; updateScoreUI(); nav('view-score-board');
+        }
+
+        let clickTimers = { 1: null, 2: null };
+        function handleScoreTap(team) {
+            if (clickTimers[team]) { clearTimeout(clickTimers[team]); clickTimers[team] = null; if(team === 1 && t1Score > 0) t1Score--; if(team === 2 && t2Score > 0) t2Score--; updateScoreUI(); } 
+            else { clickTimers[team] = setTimeout(() => { if(team === 1) t1Score++; if(team === 2) t2Score++; updateScoreUI(); clickTimers[team] = null; }, 300); }
+        }
+        function updateScoreUI() { document.getElementById('boardT1Score').innerText = t1Score; document.getElementById('boardT2Score').innerText = t2Score; }
+
+        function uploadScore() {
+            db.matches.push({ id: Date.now(), date: currentMatchDate, t1: [document.getElementById('s_p1').value, document.getElementById('s_p2').value], t2: [document.getElementById('s_p3').value, document.getElementById('s_p4').value], s1: t1Score, s2: t2Score });
+            rtdb.ref('matches').set(db.matches).then(() => { 
+                document.getElementById('postMatchOverlay').classList.remove('hidden');
+                document.getElementById('postMatchOverlay').classList.add('flex');
+            });
+        }
+
+        function nextMatchFlow() {
+            document.getElementById('postMatchOverlay').classList.add('hidden');
+            document.getElementById('postMatchOverlay').classList.remove('flex');
+            nav('view-score-step2');
+        }
+
+        function endMatchFlow() {
+            if(confirm('確定回到主頁面？\n\n請確認今天所有賽程皆已結束。')) {
+                document.getElementById('postMatchOverlay').classList.add('hidden');
+                document.getElementById('postMatchOverlay').classList.remove('flex');
+                nav('view-menu');
+            }
+        }
+
+        function renderLeaderboard() {
+            let singleStats = db.users.map(u => {
+                const m = db.matches ? db.matches.filter(m => [...m.t1, ...m.t2].includes(u.name)) : [];
+                const w = m.filter(match => { const isT1 = match.t1.includes(u.name); return isT1 ? (match.s1 > match.s2) : (match.s2 > match.s1); }).length;
+                return { name: u.name, rate: m.length ? Math.round(w/m.length*100) : 0, t: m.length, gender: u.gender };
+            });
+
+            let topMen = singleStats.filter(s => s.gender === 'male' && s.t >= 40).sort((a,b) => b.rate - a.rate || b.t - a.t).slice(0, 3);
+            let topWomen = singleStats.filter(s => s.gender === 'female' && s.t >= 40).sort((a,b) => b.rate - a.rate || b.t - a.t).slice(0, 3);
+
+            let comboMap = {};
+            (db.matches || []).forEach(m => {
+                let winT1 = m.s1 > m.s2; let winT2 = m.s2 > m.s1;
+                let c1 = [...m.t1].sort().join(' & '); let c2 = [...m.t2].sort().join(' & ');
+                if (m.t1.length === 2) { if (!comboMap[c1]) comboMap[c1] = { win: 0, total: 0 }; comboMap[c1].total++; if (winT1) comboMap[c1].win++; }
+                if (m.t2.length === 2) { if (!comboMap[c2]) comboMap[c2] = { win: 0, total: 0 }; comboMap[c2].total++; if (winT2) comboMap[c2].win++; }
+            });
+
+            let comboStats = Object.keys(comboMap).map(k => ({ name: k, rate: Math.round(comboMap[k].win/comboMap[k].total*100), t: comboMap[k].total }));
+            let topCombos = comboStats.filter(c => c.t >= 15).sort((a,b) => b.rate - a.rate || b.t - a.t).slice(0, 3);
+
+            let lbHTML = `<div class="mb-4"><h3 class="text-sm font-black text-indigo-400 mb-3 border-b border-indigo-500/30 pb-2">🏸 雙打前三強 <span class="text-xs text-slate-400 font-normal">需滿 20 場</span></h3>`;
+            if (topCombos.length) lbHTML += topCombos.map((c, i) => `<div class="flex justify-between items-center p-3 bg-indigo-900/30 rounded-xl mb-2"><span class="font-bold text-indigo-200">${i+1}. ${c.name} <small class="text-slate-400">(${c.t}場)</small></span><span class="font-black text-indigo-400">${c.rate}%</span></div>`).join('');
+            else lbHTML += `<p class="text-xs text-slate-500 italic py-2">尚無符合條件組合</p>`;
+            
+            lbHTML += `</div><div class="mb-4"><h3 class="text-sm font-black text-blue-400 mb-3 border-b border-blue-500/30 pb-2">👨 男單前三強 <span class="text-xs text-slate-400 font-normal">需滿 40 場</span></h3>`;
+            if (topMen.length) lbHTML += topMen.map((s, i) => `<div class="flex justify-between items-center p-3 bg-blue-900/30 rounded-xl mb-2"><span class="font-bold text-blue-200">${i+1}. ${s.name} <small class="text-slate-400">(${s.t}場)</small></span><span class="font-black text-blue-400">${s.rate}%</span></div>`).join('');
+            else lbHTML += `<p class="text-xs text-slate-500 italic py-2">尚無符合條件選手</p>`;
+            
+            lbHTML += `</div><div><h3 class="text-sm font-black text-pink-400 mb-3 border-b border-pink-500/30 pb-2">👩 女單前三強 <span class="text-xs text-slate-400 font-normal">需滿 40 場</span></h3>`;
+            if (topWomen.length) lbHTML += topWomen.map((s, i) => `<div class="flex justify-between items-center p-3 bg-pink-900/30 rounded-xl mb-2"><span class="font-bold text-pink-200">${i+1}. ${s.name} <small class="text-slate-400">(${s.t}場)</small></span><span class="font-black text-pink-400">${s.rate}%</span></div>`).join('');
+            else lbHTML += `<p class="text-xs text-slate-500 italic py-2">尚無符合條件選手</p>`;
+            
+            document.getElementById('leaderboardContent').innerHTML = lbHTML;
+        }
+
+        function renderAnalysisAvatars() {
+            document.getElementById('analysisAvatarGrid').innerHTML = db.users.map(u => `
+                <div onclick="showPersonalAnalysis('${u.name}')" class="flex flex-col items-center bg-slate-800 p-4 rounded-xl cursor-pointer active:scale-95 transition border border-transparent hover:border-indigo-500">
+                    <img src="${u.avatar || playerAvatarFallback}" onerror="this.src='${playerAvatarFallback}'" class="w-12 h-12 rounded-full mb-2 object-cover">
+                    <span class="text-xs font-bold truncate w-full text-center">${u.name}</span>
+                </div>
+            `).join('');
+        }
+
+        function showPersonalAnalysis(playerName) {
+            const myMatches = (db.matches || []).filter(m => [...m.t1, ...m.t2].includes(playerName));
+            if (myMatches.length === 0) return alert('尚無比賽數據可供分析');
+            
+            let partners = {}; let enemies = {}; let myWins = 0;
+            myMatches.forEach(m => {
+                const isT1 = m.t1.includes(playerName);
+                const myTeam = isT1 ? m.t1 : m.t2; const enemyTeam = isT1 ? m.t2 : m.t1;
+                const isWin = isT1 ? (m.s1 > m.s2) : (m.s2 > m.s1);
+                if(isWin) myWins++;
+                const partner = myTeam.find(p => p !== playerName);
+                if (partner) { if (!partners[partner]) partners[partner] = { win: 0, total: 0 }; partners[partner].total++; if (isWin) partners[partner].win++; }
+                enemyTeam.forEach(e => { if (!enemies[e]) enemies[e] = { win: 0, total: 0 }; enemies[e].total++; if (!isWin) enemies[e].win++; });
+            });
+
+            const myOverallRate = Math.round((myWins / myMatches.length) * 100);
+            
+            const pArr = Object.entries(partners).map(([name, stat]) => ({ name, rate: Math.round(stat.win/stat.total*100), total: stat.total }));
+            const validPartners = pArr.filter(p => p.total >= 20);
+            const bestPartner = validPartners.slice().sort((a,b) => b.rate - a.rate || b.total - a.total)[0];
+            const worstPartner = validPartners.slice().sort((a,b) => a.rate - b.rate || b.total - a.total)[0];
+            
+            const validEnemies = Object.entries(enemies).map(([name, stat]) => ({ name, rate: Math.round(stat.win/stat.total*100), total: stat.total })).filter(e => e.total >= 20);
+            const toughEnemy = validEnemies.sort((a,b) => b.rate - a.rate || b.total - a.total)[0];
+
+            let historyHTML = `<div class="mt-8"><h4 class="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-700 pb-2 mb-3">📅 個人歷史賽程</h4><div class="space-y-2">`;
+            const sortedMatches = myMatches.slice().sort((a,b) => b.id - a.id); 
+            sortedMatches.forEach(m => {
+                const isT1 = m.t1.includes(playerName);
+                const isWin = isT1 ? (m.s1 > m.s2) : (m.s2 > m.s1);
+                const winTag = isWin ? '<span class="text-emerald-400 font-black text-[10px] border border-emerald-500/50 bg-emerald-900/30 px-2 py-0.5 rounded-md">勝</span>' : '<span class="text-rose-400 font-black text-[10px] border border-rose-500/50 bg-rose-900/30 px-2 py-0.5 rounded-md">敗</span>';
+                historyHTML += `
+                    <div class="bg-slate-800/50 p-3 rounded-xl flex justify-between items-center text-sm shadow-sm border border-slate-700/50">
+                        <div class="flex flex-col w-full">
+                            <span class="text-[10px] text-slate-500 mb-1">${m.date || '無日期'}</span>
+                            <div class="flex items-center gap-3">
+                                ${winTag}
+                                <span class="font-bold text-slate-300 text-xs w-full"><span class="text-indigo-400">${m.t1.join('/')}</span> <span class="mx-1 text-white">${m.s1}:${m.s2}</span> <span class="text-rose-400">${m.t2.join('/')}</span></span>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+            historyHTML += `</div></div>`;
+
+            document.getElementById('personalAnalysisContent').innerHTML = `
+                <div class="text-center mb-6">
+                    <h3 class="text-3xl font-black text-white">${playerName}</h3>
+                    <p class="text-sm font-bold text-slate-400 mt-2">累積場次: <span class="text-white">${myMatches.length}</span> 場 | 總勝率: <span class="text-indigo-400">${myOverallRate}%</span></p>
+                </div>
+                <div class="space-y-4">
+                    <div class="bg-emerald-900/30 p-5 rounded-2xl border border-emerald-500/20"><p class="text-xs font-black text-emerald-400 mb-2">🤝 最強戰友 (勝率最高)</p>${bestPartner ? `<div class="flex justify-between items-end"><span class="text-lg font-bold">${bestPartner.name}</span><span class="text-2xl font-black text-emerald-400">${bestPartner.rate}% <small class="text-xs text-slate-500 font-normal">(${bestPartner.total}場)</small></span></div>` : '<p class="text-sm text-slate-500">尚無搭配滿 20 場之隊友</p>'}</div>
+                    <div class="bg-slate-800 p-5 rounded-2xl border border-slate-700"><p class="text-xs font-black text-slate-400 mb-2">🤦 最雷搭檔 (勝率最低)</p>${worstPartner ? `<div class="flex justify-between items-end"><span class="text-lg font-bold">${worstPartner.name}</span><span class="text-2xl font-black text-slate-300">${worstPartner.rate}% <small class="text-xs text-slate-500 font-normal">(${worstPartner.total}場)</small></span></div>` : '<p class="text-sm text-slate-500">尚無搭配滿 20 場之隊友</p>'}</div>
+                    <div class="bg-rose-900/30 p-5 rounded-2xl border border-rose-500/20"><p class="text-xs font-black text-rose-400 mb-2">☠️ 頭號宿敵 (敗率最高)</p>${toughEnemy ? `<div class="flex justify-between items-end"><span class="text-lg font-bold">${toughEnemy.name}</span><span class="text-2xl font-black text-rose-400">${toughEnemy.rate}% <small class="text-xs text-slate-500 font-normal">(${toughEnemy.total}場)</small></span></div>` : '<p class="text-sm text-slate-500">尚無交手滿 20 場之對手</p>'}</div>
+                </div>
+                ${historyHTML}`;
+            nav('view-analysis-detail');
+        }
+
+        function renderAccounting() {
+            const list = document.getElementById('ledgerList');
+            let totalInc = 0; let totalExp = 0;
+            const isAdmin = session && ['鈞豪', '忴心', '安琪'].includes(session.name);
+            const html = (db.accounting || []).slice().reverse().map(a => {
+                const isInc = a.type === 'income';
+                const amt = Number(a.amt);
+                if(isInc) totalInc += amt; else totalExp += amt;
+                const catTag = a.category ? `<span class="bg-slate-700 text-slate-300 px-2 py-0.5 rounded-md text-[10px] mr-2">${a.category}</span>` : '';
+                return `
+                    <div class="flex justify-between items-center p-4 bg-slate-800 rounded-2xl mb-3 shadow-md border border-slate-700/50">
+                        <div>
+                            <p class="text-[10px] text-slate-400 mb-1">${a.date}</p>
+                            <p class="font-bold text-sm text-white">${catTag}${a.desc || '無備註'}</p>
+                        </div>
+                        <div class="text-right flex items-center gap-4">
+                            <p class="font-black text-xl ${isInc ? 'text-emerald-400' : 'text-rose-400'}">${isInc ? '+' : '-'}$${amt}</p>
+                            ${isAdmin ? `<button onclick="delLedger(${a.id})" class="text-slate-500 hover:text-rose-500 text-lg active:scale-90">🗑️</button>` : ''}
+                        </div>
+                    </div>`;
+            }).join('');
+            
+            list.innerHTML = html || '<p class="text-center text-slate-500 py-10 text-sm">尚無任何交易紀錄</p>';
+            document.getElementById('totalIncome').innerText = `+$${totalInc}`;
+            document.getElementById('totalExpense').innerText = `-$${totalExp}`;
+            document.getElementById('totalBalance').innerText = `$${totalInc - totalExp}`;
+        }
+
+        function openLedgerForm() {
+            document.getElementById('ledgerDate').valueAsDate = new Date();
+            document.getElementById('ledgerDesc').value = '';
+            document.getElementById('ledgerAmt').value = '';
+            document.getElementById('ledgerFormOverlay').classList.remove('hidden');
+            document.getElementById('ledgerFormOverlay').classList.add('flex');
+        }
+
+        function saveLedger() {
+            const date = document.getElementById('ledgerDate').value;
+            const category = document.getElementById('ledgerCategory').value;
+            const desc = document.getElementById('ledgerDesc').value.trim();
+            const amt = document.getElementById('ledgerAmt').value;
+            const type = document.querySelector('input[name="ledgerType"]:checked').value;
+            if(!amt) return alert('請輸入金額');
+            
+            db.accounting.push({ id: Date.now(), date, category, desc, amt, type });
+            rtdb.ref('accounting').set(db.accounting).then(() => {
+                document.getElementById('ledgerFormOverlay').classList.add('hidden');
+                renderAccounting();
+            });
+        }
+        function delLedger(id) {
+            if(confirm('確定刪除此帳目？')) { db.accounting = db.accounting.filter(a => a.id !== id); rtdb.ref('accounting').set(db.accounting).then(renderAccounting); }
+        }
+
+        function openAISystem() {
+            nav('view-ai');
+            document.getElementById('aiPlayerChecklist').innerHTML = db.users.map(u => `
+                <label class="cursor-pointer"><input type="checkbox" class="hidden peer ai-cb" value="${u.name}" data-gender="${u.gender}"><div class="p-2 border border-slate-600 rounded-xl text-center text-[11px] font-bold text-slate-400 peer-checked:bg-purple-600 peer-checked:text-white transition truncate">${u.name}</div></label>
+            `).join('');
+            document.getElementById('aiMatchResult').innerHTML = '';
+        }
+
+        function getPower(name) {
+            const m = (db.matches||[]).filter(m => [...m.t1, ...m.t2].includes(name));
+            if(!m.length) return 50;
+            const w = m.filter(match => { const isT1 = match.t1.includes(name); return isT1 ? (match.s1 > match.s2) : (match.s2 > match.s1); }).length;
+            return (w/m.length)*100;
+        }
+
+        function generateAITeams() {
+            const checked = Array.from(document.querySelectorAll('.ai-cb:checked'));
+            if(checked.length < 4) return alert('請勾選至少 4 人');
+            let men = [], women = [];
+            checked.forEach(cb => { let p = { name: cb.value, power: getPower(cb.value) }; if(cb.dataset.gender === 'male') men.push(p); else women.push(p); });
+            men.sort((a,b)=>b.power-a.power); women.sort((a,b)=>b.power-a.power);
+            let teams = [];
+            while(men.length>0 && women.length>0) { let m = men.shift(), w = women.pop(); teams.push({ t: [m.name, w.name], power: (m.power+w.power)/2 }); }
+            while(men.length>=2) { let m1=men.shift(), m2=men.pop(); teams.push({t:[m1.name, m2.name], power: (m1.power+m2.power)/2}); }
+            while(women.length>=2) { let w1=women.shift(), w2=women.pop(); teams.push({t:[w1.name, w2.name], power: (w1.power+w2.power)/2}); }
+            teams.sort((a,b) => b.power - a.power);
+            let html = '';
+            for(let i=0; i<teams.length-1; i+=2) {
+                html += `<div class="bg-slate-800 p-4 rounded-xl flex justify-between items-center text-sm font-bold"><div class="text-indigo-400 w-2/5 text-right truncate">${teams[i].t.join('/')}</div><div class="text-slate-500 text-[10px] italic w-1/5 text-center">VS</div><div class="text-rose-400 w-2/5 text-left truncate">${teams[i+1].t.join('/')}</div></div>`;
+            }
+            document.getElementById('aiMatchResult').innerHTML = html;
+        }
+    </script>
+</body>
+</html>
