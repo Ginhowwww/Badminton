@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, orientation=portrait">
     <title>BMT 2026 雲端數據中心 PRO</title>
-<link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0f172a">
 
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -37,9 +37,20 @@
         .btn-primary:active { transform: scale(0.95); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         
+        /* 強制橫屏與動畫回饋 */
         @media screen and (orientation: portrait) {
-            #view-score-board.active::before { content: "請將手機轉為橫向以進行計分"; position: fixed; inset: 0; background: #0f172a; z-index: 999; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 900; }
+            #view-score-board.active {
+                position: fixed !important;
+                width: 100vh !important;
+                height: 100vw !important;
+                top: 50% !important;
+                left: 50% !important;
+                transform: translate(-50%, -50%) rotate(90deg) !important;
+                z-index: 999;
+            }
         }
+        .score-anim { transition: all 0.15s ease-out; }
+        .score-flash { transform: scale(1.3); color: #fde047 !important; }
     </style>
 </head>
 <body>
@@ -149,13 +160,18 @@
             <button onclick="nav('view-score-step1')" class="text-slate-400 text-2xl font-black">←</button>
             <h2 class="text-2xl font-black italic">步驟二：對戰組合</h2>
         </header>
-        <div class="glass-card p-6 space-y-8 flex-1">
+        <div class="glass-card p-6 space-y-4 flex-1">
             <div class="space-y-3">
                 <p class="text-center font-black text-indigo-400">TEAM A</p>
                 <select id="s_p1" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
                 <select id="s_p2" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
             </div>
-            <div class="text-center font-black text-slate-500 text-2xl italic">VS</div>
+            
+            <div class="text-center py-2 flex flex-col items-center justify-center gap-2">
+                <span class="font-black text-slate-500 text-xl italic">VS</span>
+                <button onclick="swapTeams()" class="bg-slate-700/80 text-white px-5 py-2 rounded-full font-bold text-xs shadow-lg border border-slate-600 hover:bg-slate-600 active:scale-90 transition-all">🔄 交換場地</button>
+            </div>
+
             <div class="space-y-3">
                 <p class="text-center font-black text-rose-400">TEAM B</p>
                 <select id="s_p3" class="w-full bg-slate-800 p-4 rounded-xl outline-none font-bold text-center"></select>
@@ -171,16 +187,16 @@
             <button onclick="uploadScore()" class="bg-emerald-600 px-6 py-2 rounded-full font-black shadow-lg">打完上傳</button>
         </div>
         <div class="flex-1 flex w-full">
-            <div class="flex-1 bg-indigo-900 flex flex-col justify-center items-center cursor-pointer border-r-2 border-slate-900 select-none" onclick="handleScoreTap(1)">
+            <div class="flex-1 bg-indigo-900 flex flex-col justify-center items-center cursor-pointer border-r-2 border-slate-900 select-none touch-none" onpointerdown="handlePtrDown(event)" onpointerup="handlePtrUp(event, 1)">
                 <h2 id="boardT1Names" class="text-2xl font-bold opacity-70 mb-4 pointer-events-none"></h2>
-                <div id="boardT1Score" class="text-[12rem] font-black leading-none pointer-events-none">0</div>
+                <div id="boardT1Score" class="text-[12rem] font-black leading-none pointer-events-none score-anim">0</div>
             </div>
-            <div class="flex-1 bg-rose-900 flex flex-col justify-center items-center cursor-pointer border-l-2 border-slate-900 select-none" onclick="handleScoreTap(2)">
+            <div class="flex-1 bg-rose-900 flex flex-col justify-center items-center cursor-pointer border-l-2 border-slate-900 select-none touch-none" onpointerdown="handlePtrDown(event)" onpointerup="handlePtrUp(event, 2)">
                 <h2 id="boardT2Names" class="text-2xl font-bold opacity-70 mb-4 pointer-events-none"></h2>
-                <div id="boardT2Score" class="text-[12rem] font-black leading-none pointer-events-none">0</div>
+                <div id="boardT2Score" class="text-[12rem] font-black leading-none pointer-events-none score-anim">0</div>
             </div>
         </div>
-        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-slate-400 text-xs font-bold pointer-events-none">點一下 +1 分｜連點兩下 -1 分</div>
+        <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-slate-400 text-[10px] font-bold pointer-events-none bg-slate-900/60 px-4 py-2 rounded-full tracking-widest whitespace-nowrap shadow-lg">點一下 +1 分 ｜ 向下滑動扣 1 分</div>
     </section>
 
     <div id="postMatchOverlay" class="fixed inset-0 bg-slate-900/95 flex-col items-center justify-center hidden z-50 p-6">
@@ -359,18 +375,10 @@
             rtdb.ref('/').on('value', (snapshot) => {
                 const data = snapshot.val();
                 if (data) {
-                    // 【除錯修正區塊】過濾 Firebase 手動刪除產生的 null 洞或物件格式，確保皆為乾淨的陣列
                     db.users = data.users ? Object.values(data.users).filter(Boolean) : [];
                     db.matches = data.matches ? Object.values(data.matches).filter(Boolean) : [];
                     db.accounting = data.accounting ? Object.values(data.accounting).filter(Boolean) : [];
                     
-                    // 移除舊版用來過濾管理員的邏輯，避免再次呼叫 .find 報錯
-                    if(db.users.find(u => u && u.id === 'admin-001')) {
-                        db.users = db.users.filter(u => u.id !== 'admin-001');
-                        rtdb.ref('users').set(db.users);
-                    }
-                    
-                    // 【除錯修正】如果當前登入的帳號剛好在 Firebase 被刪除了，強制讓其登出，避免後續報錯
                     if (session && !db.users.find(u => u.id === session.id)) {
                         session = null;
                         location.reload();
@@ -491,7 +499,7 @@
             
             document.getElementById('setAvatar').src = session.avatar || playerAvatarFallback;
             document.getElementById('setName').value = session.name;
-            document.getElementById('setGender').value = session.gender || 'male'; // 載入性別
+            document.getElementById('setGender').value = session.gender || 'male'; 
             document.getElementById('setPin').value = session.pin;
             if(isAdmin) { renderAdminList(); renderAdminMatches(); }
         }
@@ -587,6 +595,19 @@
             nav('view-score-step2');
         }
 
+        // 新增交換場地功能
+        function swapTeams() {
+            let p1 = document.getElementById('s_p1').value;
+            let p2 = document.getElementById('s_p2').value;
+            let p3 = document.getElementById('s_p3').value;
+            let p4 = document.getElementById('s_p4').value;
+            
+            document.getElementById('s_p1').value = p3;
+            document.getElementById('s_p2').value = p4;
+            document.getElementById('s_p3').value = p1;
+            document.getElementById('s_p4').value = p2;
+        }
+
         function startScoreboard() {
             const p1 = document.getElementById('s_p1').value, p2 = document.getElementById('s_p2').value, p3 = document.getElementById('s_p3').value, p4 = document.getElementById('s_p4').value;
             if([p1,p2,p3,p4].includes('')) return alert('請選齊四位球員');
@@ -596,11 +617,53 @@
             t1Score = 0; t2Score = 0; updateScoreUI(); nav('view-score-board');
         }
 
-        let clickTimers = { 1: null, 2: null };
-        function handleScoreTap(team) {
-            if (clickTimers[team]) { clearTimeout(clickTimers[team]); clickTimers[team] = null; if(team === 1 && t1Score > 0) t1Score--; if(team === 2 && t2Score > 0) t2Score--; updateScoreUI(); } 
-            else { clickTimers[team] = setTimeout(() => { if(team === 1) t1Score++; if(team === 2) t2Score++; updateScoreUI(); clickTimers[team] = null; }, 300); }
+        // 核心滑動與震動回饋邏輯
+        let ptrStartX = 0, ptrStartY = 0;
+        function handlePtrDown(e) {
+            ptrStartX = e.clientX;
+            ptrStartY = e.clientY;
         }
+        function handlePtrUp(e, team) {
+            let deltaX = e.clientX - ptrStartX;
+            let deltaY = e.clientY - ptrStartY;
+            
+            // 判斷是否為直向模式被強制轉橫 (此時座標軸也會跟著變)
+            let isPortrait = window.innerHeight > window.innerWidth;
+            let isSwipeDown = isPortrait ? (deltaX < -40) : (deltaY > 40);
+            let isTap = Math.abs(deltaX) < 15 && Math.abs(deltaY) < 15;
+
+            if (isSwipeDown) changeScore(team, -1);
+            else if (isTap) changeScore(team, 1);
+        }
+        
+        function changeScore(team, amount) {
+            if (team === 1) {
+                if(amount < 0 && t1Score === 0) return;
+                t1Score = Math.max(0, t1Score + amount);
+                animateScore('boardT1Score', amount);
+            } else {
+                if(amount < 0 && t2Score === 0) return;
+                t2Score = Math.max(0, t2Score + amount);
+                animateScore('boardT2Score', amount);
+            }
+            updateScoreUI();
+            
+            // 觸發手機震動 (加分短震，扣分長震)
+            if (navigator.vibrate) {
+                navigator.vibrate(amount > 0 ? 50 : [50, 50, 50]); 
+            }
+        }
+
+        function animateScore(id, amount) {
+            const el = document.getElementById(id);
+            el.classList.add('score-flash');
+            if(amount < 0) el.style.color = '#f87171'; // 扣分閃紅色
+            setTimeout(() => {
+                el.classList.remove('score-flash');
+                el.style.color = '';
+            }, 150);
+        }
+
         function updateScoreUI() { document.getElementById('boardT1Score').innerText = t1Score; document.getElementById('boardT2Score').innerText = t2Score; }
 
         function uploadScore() {
@@ -790,6 +853,16 @@
             document.getElementById('aiMatchResult').innerHTML = '';
         }
 
+        // 計算兩個人的歷史組隊次數 (用於 AI 避免重複配對)
+        function getPairingCount(name1, name2) {
+            let count = 0;
+            (db.matches || []).forEach(m => {
+                if ((m.t1.includes(name1) && m.t1.includes(name2)) || 
+                    (m.t2.includes(name1) && m.t2.includes(name2))) count++;
+            });
+            return count;
+        }
+
         function getPower(name) {
             const m = (db.matches||[]).filter(m => [...m.t1, ...m.t2].includes(name));
             if(!m.length) return 50;
@@ -803,10 +876,36 @@
             let men = [], women = [];
             checked.forEach(cb => { let p = { name: cb.value, power: getPower(cb.value) }; if(cb.dataset.gender === 'male') men.push(p); else women.push(p); });
             men.sort((a,b)=>b.power-a.power); women.sort((a,b)=>b.power-a.power);
+            
             let teams = [];
-            while(men.length>0 && women.length>0) { let m = men.shift(), w = women.pop(); teams.push({ t: [m.name, w.name], power: (m.power+w.power)/2 }); }
-            while(men.length>=2) { let m1=men.shift(), m2=men.pop(); teams.push({t:[m1.name, m2.name], power: (m1.power+m2.power)/2}); }
-            while(women.length>=2) { let w1=women.shift(), w2=women.pop(); teams.push({t:[w1.name, w2.name], power: (w1.power+w2.power)/2}); }
+
+            // 尋找最佳不重複搭檔函數
+            function findBestPartner(player, pool) {
+                pool.sort((a,b) => {
+                    let countA = getPairingCount(player.name, a.name);
+                    let countB = getPairingCount(player.name, b.name);
+                    if(countA !== countB) return countA - countB; // 優先配對次數最少的人
+                    return a.power - b.power; // 次數相同則找戰力最低的 (強弱互補)
+                });
+                return pool.shift(); 
+            }
+
+            while(men.length>0 && women.length>0) { 
+                let m = men.shift(); 
+                let w = findBestPartner(m, women); 
+                teams.push({ t: [m.name, w.name], power: (m.power+w.power)/2 }); 
+            }
+            while(men.length>=2) { 
+                let m1 = men.shift(); 
+                let m2 = findBestPartner(m1, men); 
+                teams.push({t:[m1.name, m2.name], power: (m1.power+m2.power)/2}); 
+            }
+            while(women.length>=2) { 
+                let w1 = women.shift(); 
+                let w2 = findBestPartner(w1, women); 
+                teams.push({t:[w1.name, w2.name], power: (w1.power+w2.power)/2}); 
+            }
+            
             teams.sort((a,b) => b.power - a.power);
             let html = '';
             for(let i=0; i<teams.length-1; i+=2) {
